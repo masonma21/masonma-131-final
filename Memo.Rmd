@@ -1,0 +1,6 @@
+---
+title: "Memo"
+author: "Mason Ma"
+date: "10/2/2022"
+output: html_document
+---
