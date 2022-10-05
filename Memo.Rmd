@@ -2,7 +2,8 @@
 title: "Final Project Memo"
 author: "Mason Ma"
 date: "10/2/2022"
-output: html_document
+output:
+  html_document: default
 ---
 # Heart Failure Prediction
 
