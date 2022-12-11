@@ -8,6 +8,9 @@ output:
     theme: united
     toc_float: true
 ---
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE) 
+```
 Introduction
 ---------------
 The purpose of this project is to generate a model that will predict whether people will tend to have heart failure given the 12 clinical features of themselves. The data we will be using originates from `kaggle` and we will utilize multiple machine learning techniques to yield the most accurate model for this binary classification problem.
@@ -46,6 +49,7 @@ library(wesanderson)
 library(waffle)
 library(ggridges)
 library(ggpubr)
+library(ranger)
 library(kernlab)
 # set seed 
 set.seed(2022)
@@ -537,7 +541,6 @@ In this case where we implement the Classification tree model, we received excel
 The random forest is a classification algorithm consisting of many decisions trees. It uses bagging and feature randomness when building each individual tree to try to create an uncorrelated forest of trees whose prediction by committee is more accurate than that of any individual tree.
 
 ```{r class.source = 'fold-show'}
-library(ranger)
 data_f_spec<-rand_forest() %>%
   set_engine("ranger",importance="impurity")%>%
   set_mode("classification")
