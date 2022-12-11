@@ -1,0 +1,701 @@
+---
+title: "Heart Failure Prediction"
+author: "Mason Ma"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    theme: united
+    toc_float: true
+---
+Introduction
+---------------
+The purpose of this project is to generate a model that will predict whether people will tend to have heart failure given the 12 clinical features of themselves. The data we will be using originates from `kaggle` and we will utilize multiple machine learning techniques to yield the most accurate model for this binary classification problem.
+
+### Why is this model relevant?
+
+Cardiovascular diseases (CVDs) are the number 1 cause of death globally, taking an estimated 17.9 million lives each year, which accounts for 31% of all deaths worlwide.
+Heart failure is a common event caused by CVDs and this dataset contains 12 features that can be used to predict mortality by heart failure.
+
+Most cardiovascular diseases can be prevented by addressing behavioural risk factors such as tobacco use, unhealthy diet and obesity, physical inactivity and harmful use of alcohol using population-wide strategies.
+
+People with cardiovascular disease or who are at high cardiovascular risk (due to the presence of one or more risk factors such as hypertension, diabetes, hyperlipidaemia or already established disease) need early detection and management wherein a machine learning model can be of great help.
+
+### Loading Data and Packages
+
+```{r message=FALSE, warning=FALSE, class.source = 'fold-show'}
+# loading packages
+library(tidymodels)
+library(patchwork)
+library(tidyverse)
+library(ISLR)
+library(rpart.plot)
+library(vip)
+library(janitor)
+library(randomForest)
+library(xgboost)
+library(ggplot2)
+library(corrplot)
+library(ggthemes)
+library(klaR)
+library(discrim)
+library(poissonreg)
+library(corrr)
+library(extrafont)
+library(wesanderson)
+library(waffle)
+library(ggridges)
+library(ggpubr)
+library(kernlab)
+# set seed 
+set.seed(2022)
+```
+
+```{r class.source = 'fold-show'}
+# loading data
+original_data <- read.table('/Users/mason/Desktop/PSTAT131/masonma-131-final/data/unprocessed/heart_failure_original_data.csv',
+                            sep=",",
+                            header=TRUE) 
+```
+
+We will analyze a dataset containing the medical records of 299 heart failure patients collected at the Faisalabad Institute of Cardiology and at the Allied Hospital in Faisalabad (Punjab, Pakistan), during April–December 2015. The full copy of the code book is available in my zipped files, here are some of the key variables that are helpful to be aware of for this report:
+
+`Age`: Age of the patient // Numerical (Years) 
+
+`anaemia`: Decrease of red blood cells or hemoglobin // Boolean
+
+`creatinine_phosphokinase`: Level of the CPK enzyme in the blood // Numerical (mcg/L)
+
+`diabetes`: If the patient has diabetes // Boolean
+
+`ejection_fraction`: Percentage of blood leaving the heart at each contraction // Numerical (Percentage)
+
+`high_blood_pressure`: If a patient has hypertension // Boolean
+
+`platelets`: Platelets in the blood // Numerical (kiloplatelets/mL)
+
+`serum_creatinine`: Level of creatinine in the blood // Numerical (mg/dL)
+
+`serum_sodium`: Level of sodium in the blood // Numerical (mEq/L)
+
+`sex`: Woman or man // Boolean
+
+`smoking`: If the patient smokes or not // Boolean
+
+`time`: Follow-up period // Days
+
+`DEATH_EVENT`: If the patient deceased during the follow-up period // Boolean
+
+Note: mcg/L: micrograms per liter. mL: microliter. mEq/L: milliequivalents per litre
+
+## Exploratory Data Analysis
+
+Before we implement any modeling techniques upon our data set, we need to have a look at what our data really looks like. When we load our data, not everything is going to be perfect and ready for application. For instance, there can be some variables that might need to converted to factors, or some missing values that might need to be cleaned. An exploratory data analysis is a thorough examination meant to uncover the underlying structure of a data set and is important for machine learning because it exposes trends, patterns, and relationships that are not readily apparent.
+
+```{r class.source = 'fold-show'}
+#checking for missing values in the dataset
+table(is.na(original_data))
+
+original_data <- original_data %>% 
+  clean_names()
+
+original_data %>%
+  head()
+```
+```{r class.source = 'fold-show'}
+summary(original_data)
+```
+
+How big is this data set that we have to work with now?
+
+```{r class.source = 'fold-show'}
+dim(original_data)
+```
+
+There are 299 observations and 13 variables for each one of them.
+
+We want the values of boolean variables like anaemia and sex to be of categorical type, so we will transform those into factor accordingly using the below code.
+
+```{r class.source = 'fold-show'}
+original_data$anaemia <- factor(original_data$anaemia)
+original_data$diabetes <- factor(original_data$diabetes)
+original_data$high_blood_pressure <- factor(original_data$high_blood_pressure)
+original_data$sex <- factor(original_data$sex)
+```
+
+### Survived vs. Dead
+
+Then, we can have a look at how we can visualize the number of survived and dead patients in this data set.
+
+```{r}
+barchart <- ggplot(original_data,aes(x = death_event)) + 
+geom_bar(fill=c("green","red"))+
+labs(y = "count") + theme_classic()+ggtitle("Survived vs. Dead")+
+geom_text(stat='count', aes(label=..count..))
+barchart
+```
+
+It is now quite obvious that our output is imbalanced, meaning that when we do the modeling, we need to stratify the output variable in order to achieve better results. 
+
+### Males and Females
+
+Let's find the number of male and females in the dataset and see if it is evenly distributed.
+
+```{r}
+original_data$sex <- as.factor(original_data$sex)
+barchart1 <- ggplot(original_data,aes(x = sex)) + 
+  geom_bar(fill=c("blue"))+
+  labs(y = "count") + theme_classic()+ggtitle("Male vs. Female")+
+  geom_text(stat='count', aes(label=..count..))
+barchart1
+```
+
+We can see that there exist 105 males and 194 females in this data set.
+
+### Correlation Plot
+
+Correlation plots, also known as correlograms for more than two variables, help us to visualize the correlation between continuous variables. In this case, we can make a correlation heat map of the numeric variables to get an idea of their relationships.
+
+```{r class.source = 'fold-show'}
+original_data_numerical <- original_data %>%  # getting just the numeric data
+  select_if(is.numeric)
+
+ori_cor <- cor(original_data_numerical)  # calculating the correlation between each variable
+ori_cor_plt <- corrplot(ori_cor,  # making the correlation plot
+                               order = 'AOE') # Pink and Green color combo
+```
+
+At the first glance, we can find that there is such little correlation between a lot of our predictor variables, but after further analysis between each variable, it makes more sense. 
+
+==== Positively correlated relations:
+
+Age vs. Level of creatinine in the blood 
+
+Age vs. Death_event
+
+Level of creatinine in the blood  vs. Death_event
+
+Percentage of blood leaving the heart at each contraction vs. Level of sodium in the blood.
+
+==== Negatively correlated relations:
+
+Follow-up period vs. Age
+
+Follow-up period vs. Level of creatinine in the blood 
+
+Follow-up period vs. Death_event
+
+Level of creatinine in the blood vs. Level of sodium in the blood
+
+Level of sodium in the blood vs. Death_event
+
+Percentage of blood leaving the heart at each contraction vs. Death_event
+
+As can be seen, the outcome is most strongly correlated with time, age, ejection fraction, serum creatinine and serum sodium. Some of the key features are evaluated in more detail in the following.
+
+### Ages
+
+Higher age is expected to be associated with higher mortality. This assumption can be confirmed in the following histogram with overlayed density curves. The older patients died more often than the younger.
+```{r}
+age_plt1 <- original_data %>%
+            ggplot() + 
+            geom_histogram(data = original_data, 
+                           aes(x = age), 
+                           binwidth = 5, 
+                           fill = wes_palette("Royal2")[5], color = "Black") + 
+            theme_minimal() + 
+            theme(plot.title = element_text(size = 15, face = "bold")) +
+            labs(y = "Count", x = "Age (years)", title = "Age Distribution")
+
+age_plt2 <- original_data %>%
+            mutate(death = factor(death_event,
+                                  levels = c(0,1),
+                                  labels = c("No Death", "Death"))) %>%
+            ggplot() +
+            geom_density_ridges_gradient(aes(x = age, y = death, fill = death), scale = 1.5, rel_min_height = 0.001) +
+            scale_fill_manual(values = c(wes_palette("GrandBudapest2")[4], wes_palette("GrandBudapest1")[2])) +
+            theme_minimal() +
+            theme(legend.title = element_blank()) +
+            labs(x = "Age (years)", y = "" , title = "")
+
+age_plt3 <- original_data %>%
+            mutate(death = factor(death_event,
+                                  levels = c(0,1),
+                                  labels = c("No Death", "Death"))) %>%
+            ggplot() +
+            geom_boxplot(aes(x = death, y = age, fill = death)) +
+            geom_jitter(aes(x = death, y = age, fill = death), position = position_jitterdodge(), alpha = 0.5) +
+            coord_flip() +
+            theme_minimal() +
+            theme(legend.title = element_blank()) +
+            scale_fill_manual(values = c(wes_palette("GrandBudapest2")[4], wes_palette("GrandBudapest1")[2])) +
+            labs(x = "", y = "Age (years)", title = "")            
+
+ggarrange(age_plt1, age_plt2, age_plt3,
+          ncol = 1,
+          nrow = 3)
+```
+
+The distribution of age among those who died is centered slightly higher than the non death group. We can see that the aggregate age range is from 40 to just below 100.
+
+### Serum Creatinine
+```{r}
+serum_creatinine_plt1 <- original_data %>%
+                         ggplot() + 
+                         geom_histogram(data = original_data, 
+                                        aes(x = serum_creatinine), 
+                                        binwidth = 0.5, 
+                                        fill = wes_palette("Royal2")[5], color = "Black") + 
+                         theme_minimal() + 
+                         theme(plot.title = element_text(size = 15, face = "bold")) +
+                         labs(y = "Count", x = "Serum Creatinine (mg/dL)", title = "Serum Creatinine Distribution")
+
+serum_creatinine_plt2 <- original_data %>%
+                         mutate(death = factor(death_event,
+                                               levels = c(0,1),
+                                               labels = c("No Death", "Death"))) %>%
+                         ggplot() +
+                         geom_density_ridges_gradient(aes(x = serum_creatinine, y = death, fill = death), scale = 1.5, rel_min_height = 0.001) +
+                         scale_fill_manual(values = c(wes_palette("GrandBudapest2")[4], wes_palette("GrandBudapest1")[2])) +
+                         theme_minimal() +
+                         theme(legend.title = element_blank()) +
+                         labs(x = "Serum Creatinine (mg/dL)", y = "" , title = "")
+
+serum_creatinine_plt3 <- original_data %>%
+                         mutate(death = factor(death_event,
+                                               levels = c(0,1),
+                                               labels = c("No Death", "Death"))) %>%
+                         ggplot() +
+                         geom_boxplot(aes(x = death_event, y = serum_creatinine, fill = death)) +
+                         geom_jitter(aes(x = death_event, y = serum_creatinine, fill = death), position = position_jitterdodge(), alpha = 0.5) +
+                         coord_flip() +
+                         theme_minimal() +
+                         theme(legend.title = element_blank()) +
+                         scale_fill_manual(values = c(wes_palette("GrandBudapest2")[4], wes_palette("GrandBudapest1")[2])) +
+                         labs(x = "", y = "Serum Creatinine (mg/dL)", title = "")            
+
+ggarrange(serum_creatinine_plt1, serum_creatinine_plt2, serum_creatinine_plt3,
+          ncol = 1,
+          nrow = 3)
+```
+
+The Serum Creatinine distribution is right skewed and there are many outliers among the group who experienced death. Moreover, as we can see from the graphs above, the distribution in the death group is centered higher than that of the no death group.
+
+### Ejection fraction
+
+```{r}
+ejection_fraction_plt1 <- original_data %>%
+                          ggplot() + 
+                          geom_histogram(data = original_data, 
+                                         aes(x = ejection_fraction), 
+                                         binwidth = 5, 
+                                         fill = wes_palette("Royal2")[5], color = "Black") + 
+                          theme_minimal() + 
+                          theme(plot.title = element_text(size = 15, face = "bold")) +
+                          labs(y = "Count", x = "Ejection Fraction (%)", title = "Ejection Fraction Distribution")
+
+ejection_fraction_plt2 <- original_data %>%
+                          mutate(death = factor(death_event,
+                                                levels = c(0,1),
+                                                labels = c("No Death", "Death"))) %>%
+                          ggplot() +
+                          geom_density_ridges_gradient(aes(x = ejection_fraction, y = death, fill = death), scale = 1.5, rel_min_height = 0.001) +
+                          scale_fill_manual(values = c(wes_palette("GrandBudapest2")[4], wes_palette("GrandBudapest1")[2])) +
+                          theme_minimal() +
+                          theme(legend.title = element_blank()) +
+                          labs(x = "Ejection Fraction (%)", y = "" , title = "")
+
+ejection_fraction_plt3 <- original_data %>%
+                          mutate(death = factor(death_event,
+                                                levels = c(0,1),
+                                                labels = c("No Death", "Death"))) %>%
+                          ggplot() +
+                          geom_boxplot(aes(x = death_event, y = ejection_fraction, fill = death)) +
+                          geom_jitter(aes(x = death_event, y = ejection_fraction, fill = death), position = position_jitterdodge(), alpha = 0.5) +
+                          coord_flip() +
+                          theme_minimal() +
+                          theme(legend.title = element_blank()) +
+                          scale_fill_manual(values = c(wes_palette("GrandBudapest2")[4], wes_palette("GrandBudapest1")[2])) +
+                          labs(x = "", y = "Ejection Fraction (%)", title = "")            
+
+ggarrange(ejection_fraction_plt1, ejection_fraction_plt2, ejection_fraction_plt3,
+          ncol = 1,
+          nrow = 3)
+```
+
+We know that ejection fraction strongly correlates with the outcome. It can be shown in the following graphs above. The distribution of Ejection Fraction is somewhat chaotic in this case, though the points in the boxplot reveal that the observations are clustered at certain values. This means the density plot is somewhat mis-leading. However, we can see that the distribution of Ejection Fraction among those who died is centered lower than those who did not die. 
+
+## Setting Up Models
+
+Before we do any model building, we already have some general idea about our data, and we have found that some variables such as age, serum creatinine, and ejection fraction are closely related to the response variable. Then, we have to perform a training / testing split on our data. I decided to go with 80/20 for this data because the testing data set will still have a significant amount of observations, but our model has more to train on and learn. The reason we do this is because we want to avoid over-fitting. Then we can build a recipe and make K-fold cross-validation sets.
+
+### Data Splitting
+
+```{r class.source = 'fold-show'}
+original_data$death_event<-factor(original_data$death_event) 
+
+data_split <- original_data %>%
+  initial_split(prop = 0.8, strata = "death_event")
+
+data_train <- training(data_split) # training split
+data_test <- testing(data_split) # testing split
+```
+
+```{r class.source = 'fold-show'}
+dim(data_train)
+```
+
+```{r class.source = 'fold-show'}
+dim(data_test)
+```
+
+There are now 238 observations (13 variables) in the training dataset, and 61 observations (13 variables) in the testing dataset, both will be sufficient for model building. We did the stratified sampling because our output variable is highly imbalanced, so this step is necessary.
+
+### Recipe Building
+
+```{r class.source = 'fold-show'}
+data_recipe <- recipe(
+  death_event~.,data_train) %>%
+  step_dummy(all_nominal_predictors())%>% 
+  step_normalize() 
+```
+
+We have to normalize the data since some of our variables are extremely small, while others are quite large compared to them.
+
+### K-Fold Cross Validation
+
+Cross-validation is a statistical method used to estimate the skill of machine learning models. It is commonly used in applied machine learning to compare and select a model for a given predictive modeling problem because it is easy to understand, easy to implement, and results in skill estimates that generally have a lower bias than other methods. Cross-validation is a resampling procedure used to evaluate machine learning models on a limited data sample. The procedure has a single parameter called k that refers to the number of groups that a given data sample is to be split into. In this case, we will use five folds since our data is not too large. Although this approach can be computationally expensive, we will make use of every bit of our data, which is a major advantage when our sample size is small.
+
+```{r class.source = 'fold-show'}
+data_folds <- vfold_cv(data_train, v = 5, strata = death_event)  # 5-fold CV
+```
+
+## Model Building
+
+We will be implementing six models: logistic regression, QDA, support vector machine, classification tree, random forest, and boosted tree like we did in the homework and labs. 
+
+We will do hyper-parameter tuning for all three tree-based models, and cross-validation for five models. For evaluation for all the models, we will make use of the confusion matrix, accuracy, and precision. Precision will be weighted more heavily due to the imbalance of response variables. We expect to see (non-parametric) tree-based models perform better than (parametric) logistic regression and quadratic discriminant analysis (QDA). 
+
+### Logistic Regression
+
+In statistics, the logistic model is a statistical model that models the probability of an event taking place by having the log-odds for the event be a linear combination of one or more independent variables. In regression analysis, logistic regression is estimating the parameters of a logistic model.
+
+```{r class.source = 'fold-show'}
+log_reg <-logistic_reg() %>%
+  set_engine("glm") %>%
+  set_mode("classification")
+
+log_wkflow<-workflow() %>%
+  add_model(log_reg)%>%
+  add_recipe(data_recipe)
+
+log_fit_res<-tune_grid(
+  object=log_wkflow,
+  resamples=data_folds # for cross-validation
+  )
+
+log_fit<-fit(log_wkflow,data_train)
+
+augment(log_fit,new_data=data_train) %>%
+  conf_mat(truth=death_event,estimate=.pred_class)%>%
+  autoplot(type="heatmap")
+
+```
+
+```{r class.source = 'fold-show'}
+log_acc<-augment(log_fit,new_data=data_train)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(log_acc) 
+
+log_precision<-augment(log_fit,data_train)%>%
+  precision(death_event,.pred_class) 
+print(log_precision)
+```
+
+In this case, the accuracy for this Logistic Regression Model is 0.836 and the precision is 0.855. As for a relatively simple modeling method, it does perform pretty well on whether a patient will have a heart attack under the conditions given in the data set. Accuracy is the proportion of correct predictions over total predictions and precision is the ratio of correctly predicted positive observations to the total predicted positive observations. Since the output variable (death_event) is greatly imbalanced as we have discussed above, precision is actually a better metric than accuracy because a false negative does not give us too much information given the fact of the majority of the response is false (death_event=0).
+
+### Quadratic Discriminant Analysis
+
+Quadratic Discriminant Analysis (QDA) is a generative model. QDA assumes that each class follow a Gaussian distribution. The class-specific prior is simply the proportion of data points that belong to the class. The class-specific mean vector is the average of the input variables that belong to the class.
+
+```{r class.source = 'fold-show'}
+qda_mod<-discrim_quad()%>%
+  set_mode("classification")%>%
+  set_engine("MASS")
+
+qda_wkflow<-workflow()%>%
+  add_model(qda_mod)%>%
+  add_recipe(data_recipe)
+
+qda_fit<-fit(qda_wkflow,data_train)
+
+augment(qda_fit,new_data=data_train) %>%
+  conf_mat(truth=death_event,estimate=.pred_class)%>%
+  autoplot(type="heatmap")
+```
+```{r class.source = 'fold-show'}
+qda_acc<-augment(qda_fit,new_data=data_train)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(qda_acc)
+
+qda_precision<-augment(qda_fit,data_train)%>%
+  precision(truth=death_event,.pred_class) 
+print(qda_precision)
+```
+
+In this case, the accuracy for this Logistic Regression Model is 0.815 and the precision is 0.821. Indeed, this QDA model performs similarly to logistic regression and it did a pretty decent job. However, since the precision/accuracy of the two models are less than 0.9, we will try to improve this or even higher using other advanced models.
+
+### Support Vector Machine
+
+Support vector machines (SVMs) are a set of supervised learning methods used for classification, regression and out-liers detection. The advantages of support vector machines are: 1)Effective in high dimensional spaces. 2)Still effective in cases where number of dimensions is greater than the number of samples. 3)Uses a subset of training points in the decision function (called support vectors), so it is also memory efficient. 4)Versatile: different Kernel functions can be specified for the decision function. Common kernels are provided, but it is also possible to specify custom kernels.
+
+```{r class.source = 'fold-show'}
+svm_rbf_spec <- svm_rbf() %>%
+  set_mode("classification") %>%
+  set_engine("kernlab", scaled = FALSE)
+
+svm_rbf_fit <- svm_rbf_spec %>% 
+  fit(death_event ~ ., data=data_train)
+```
+
+```{r class.source = 'fold-show'}
+mtx<-augment(svm_rbf_fit, new_data = data_train) %>%
+  conf_mat(truth = death_event, estimate = .pred_class)%>%
+  autoplot(type="heatmap")
+
+svm_acc<-augment(svm_rbf_fit,new_data=data_train)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(svm_acc) 
+
+svm_precision<-augment(svm_rbf_fit,data_train)%>%
+  precision(death_event,.pred_class) 
+print(svm_precision)
+```
+
+The accuracy is 0.702 and the precision is 0.696 in this case. Using SVM does not seem to perform better than the previous methods.
+
+### Classification Tree Model
+
+Tree models where the target variable can take a discrete set of values are called classification trees; in these tree structures, leaves represent class labels and branches represent conjunctions of features that lead to those class labels. The Classification and regression tree(CART) methodology are one of the oldest and most fundamental algorithms. It is used to predict outcomes based on certain predictor variables. They are excellent for data mining tasks because they require very little data pre-processing.
+
+```{r class.source = 'fold-show'}
+data_tree_spec <-decision_tree() %>%
+  set_engine("rpart")
+
+data_class_tree_spec <- data_tree_spec %>%
+  set_mode("classification")
+
+data_class_tree_wkflow <- workflow() %>%
+  add_model(data_class_tree_spec %>% 
+  set_args(cost_complexity=tune())) %>% 
+  add_formula(death_event~.)
+
+data_param_grid <-grid_regular(cost_complexity(range=c(-3,-1)),levels=10)
+
+data_class_tree_res <-tune_grid(
+  data_class_tree_wkflow,
+  resamples=data_folds,
+  grid=data_param_grid,
+  metrics=metric_set(roc_auc)) # for cross-validation
+autoplot(data_class_tree_res)
+```
+
+```{r class.source = 'fold-show'}
+best_class_tree_complexity <-select_best(data_class_tree_res)
+collect_metrics(data_class_tree_res) %>% arrange(-mean)
+```
+
+From the autoplot of cost complexity parameter, it seems to be the one with the smallest complexity cost yields the highest ROC_AUC, which is 0.832.
+
+```{r class.source = 'fold-show'}
+class_tree_final<-finalize_workflow(data_class_tree_wkflow,best_class_tree_complexity)
+class_tree_final_fit<-fit(class_tree_final,data=data_train)
+augment(class_tree_final_fit,new_data=data_train) %>%
+  conf_mat(truth=death_event,estimate=.pred_class)%>%
+  autoplot(type="heatmap")
+```
+
+```{r class.source = 'fold-show'}
+class_tree_acc<-augment(class_tree_final_fit,new_data=data_train)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(class_tree_acc)
+
+class_tree_precision<-augment(class_tree_final_fit,data_train)%>%
+  precision(death_event,.pred_class) 
+print(class_tree_precision)
+```
+```{r}
+class_tree_final_fit %>%
+  extract_fit_engine()%>%
+  rpart.plot()
+```
+
+In this case where we implement the Classification tree model, we received excellent results: accuracy is 0.882 and precision is 0.894. These results are much better than the previous ones. One critical reason that contributed to this improvement is that our data set is relatively simple and convenient to predict under this method.
+
+### Random Forest Model
+
+The random forest is a classification algorithm consisting of many decisions trees. It uses bagging and feature randomness when building each individual tree to try to create an uncorrelated forest of trees whose prediction by committee is more accurate than that of any individual tree.
+
+```{r class.source = 'fold-show'}
+library(ranger)
+data_f_spec<-rand_forest() %>%
+  set_engine("ranger",importance="impurity")%>%
+  set_mode("classification")
+data_f_wkflow<-workflow()%>%
+  add_model(data_f_spec %>% set_args(mtry=tune(),trees=tune(),min_n=tune()))%>%
+  add_formula(death_event~.)
+param_grid_f<-grid_regular(mtry(range= c(1,5)),
+                           trees(range = c(10,200)),min_n(range = c(2,20)),levels = 5)
+data_res_f <-tune_grid(
+  data_f_wkflow,
+  resample=data_folds,
+  grid=param_grid_f,
+  metrics=metric_set(roc_auc)
+)
+autoplot(data_res_f)
+```
+
+From the output above, we will see when the tree size is small, the roc_auc is noticeably low, but when the tree size is above 100, the difference of roc_auc is not substantial across all the graphs. Among all the tree hyper-parameters, the number of trees seems to determine the result the most significantly.
+
+```{r class.source = 'fold-show'}
+collect_metrics(data_res_f) %>% arrange(-mean)
+```
+
+From the autoplot of cost complexity parameter, it seems that the highest ROC_AUC is 91.14.
+
+```{r class.source = 'fold-show'}
+best_complexity_f<-select_best(data_res_f)
+f_final<-finalize_workflow(data_f_wkflow,best_complexity_f)
+f_final_fit<-fit(f_final,data=data_train)
+f_final_fit %>%
+  extract_fit_engine()%>%
+  vip()
+```
+
+```{r class.source = 'fold-show'}
+best_complexity_f<-select_best(data_res_f)
+f_final<-finalize_workflow(data_f_wkflow,best_complexity_f)
+f_final_fit<-fit(f_final,data=data_train)
+augment(f_final_fit,new_data=data_train) %>%
+  conf_mat(truth=death_event,estimate=.pred_class)%>%
+  autoplot(type="heatmap")
+```
+
+```{r class.source = 'fold-show'}
+f_acc<-augment(f_final_fit,new_data=data_train)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(f_acc) 
+
+f_precision<-augment(f_final_fit,data_train)%>%
+  precision(death_event,.pred_class) 
+print(f_precision)
+```
+
+In this case, the random forest model performs extraordinary and even outperforms the classification tree model. The roc_auc is 0.914, accuracy is 0.9915, and our precision is 1. Compared to all the models we have used previously, this one seems to be the best on every aspect.
+
+### Boosted Tree Model
+
+Boosting is a method of combining many weak learners (typically decision trees) into a strong classifier.
+
+```{r class.source = 'fold-show'}
+data_boost_spec<-boost_tree()%>%
+  set_engine("xgboost")%>%
+  set_mode("classification")
+
+data_boost_Wkflow<-workflow()%>%
+  add_model(data_boost_spec %>% set_args(trees=tune()))%>%
+  add_formula(death_event~.)
+
+param_grid_boost<-grid_regular(trees(range = c(1,3000)),levels = 10)
+
+tune_res_boost <-tune_grid(
+  data_boost_Wkflow,
+  resample=data_folds,
+  grid=param_grid_boost,
+  metrics=metric_set(roc_auc)
+)
+autoplot(tune_res_boost)
+```
+
+From the output above, we can see the best result when the number of trees is around 1000. It seems that when we increase the tree size at the beginning, the roc_auc improves significantly. However, when the number of trees exceeds around 1000, the roc_auc will drop slightly. Also, we can see the range between the best one and the worst one is only about 0.04, implying that the model performs well under all situations.
+
+```{r class.source = 'fold-show'}
+collect_metrics(tune_res_boost)%>%arrange(-mean)
+```
+
+```{r class.source = 'fold-show'}
+best_tree_boost<-select_best(tune_res_boost)
+boost_final<-finalize_workflow(data_boost_Wkflow,best_tree_boost)
+boost_final_fit<-fit(boost_final,data=data_train)
+augment(boost_final_fit,new_data=data_train) %>%
+  conf_mat(truth=death_event,estimate=.pred_class)%>%
+  autoplot(type="heatmap")
+```
+
+```{r class.source = 'fold-show'}
+boost_acc<-augment(boost_final_fit,new_data=data_train)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(boost_acc) 
+
+boost_precision<-augment(boost_final_fit,data_train)%>%
+  precision(death_event,.pred_class) 
+print(boost_precision)
+```
+
+In this case, the accuracy and precision are both 1. This is really amazing since it will not make a single mistake using this machine learning method. But, we must admit that our data set is comparatively simple and convenient to predict. We will see how well it will be on the testing data set. 
+
+## Test Performance for all models
+
+Although the value of accuracy seems to be high for all models on training data, it is important to understand that accuracy cannot evaluate the overall performance of models . Precision will be weighted more heavily due to the imbalance of response variables.
+
+On training data set, Random Forest Model and Boosted Tree Model are the two models with comparatively high accuracy and precision (0.93 and 1). Then, we apply these two methods separately on the testing data set.
+
+For Random Forest Model:
+
+```{r class.source = 'fold-show'}
+augment(f_final_fit,new_data=data_test) %>%
+  conf_mat(truth=death_event,estimate=.pred_class)
+
+f_acc<-augment(f_final_fit,new_data=data_test)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(f_acc)  
+
+f_precision<-augment(f_final_fit,data_test)%>%
+  precision(death_event,.pred_class) 
+print(f_precision)
+```
+
+Accuracy: 0.8852
+
+Precision: 0.9047
+
+For Boosted Tree Model:
+```{r class.source = 'fold-show'}
+augment(boost_final_fit,new_data=data_test) %>%
+  conf_mat(truth=death_event,estimate=.pred_class)
+
+boost_acc<-augment(boost_final_fit,new_data=data_test)%>%
+  accuracy(truth=death_event,estimate=.pred_class)
+print(boost_acc)  
+
+boost_precision<-augment(boost_final_fit,data_test)%>%
+  precision(death_event,.pred_class) 
+print(boost_precision)
+```
+
+Accuracy: 0.8360
+
+Precision: 0.8780
+
+We can see that the precision are 0.9047 and 0.8780 respectively. There exists a  difference between the train accuracy and test accuracy that cannot be ignored. By definition, when training accuracy is higher than testing, then it will be an overfitting model. In essence, the model has learned particulars that help it perform better in training data that are not applicable to the larger data population and therefore result in worse performance. Moreover, the size of the whole data set is probably another reason for it. 
+
+## Conclusion 
+
+In this project we have trained and evaluated several machine learning models to predict mortality caused by heart failure based on patients' features.
+
+The data set was analyzed and evaluated in order to find important data relationships and to select meaningful predictors for the model training. The data was prepared for the training, whereas numeric predictors were scaled. Different algorithms were used then to train the models and the best algorithm was identified.
+
+Random Forest and boosted Tree showed the highest performance of all models in the 5-fold cross-validation and in the final performance check on the test set. The models ' precision are 0.9047 and 0.8780 respectively  The performance might be improved by using a larger training data set, 299 observations indeed present a modest data collection. More information would have been a profound base for  training/cross-validation providing better and deeper learning. Presumably, several of the tried algorithms would show higher performance having sufficient data. The other tried algorithms showed lower performance and some of them showed a strong overfitting. The attempts to improve the performance and to reduce overfitting were fruitless, though. 
+
+The selection of algorithms used to train the models was chosen to include simple as well as more sophisticated methods of different types. For future work, a more accurate selection based on extensive literature research can be performed. Algorithms better tailored for small data sets might help to improve the prediction.
+
